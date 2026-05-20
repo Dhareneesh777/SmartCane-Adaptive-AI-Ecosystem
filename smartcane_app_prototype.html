@@ -1,0 +1,535 @@
+
+<h2 class="sr-only">SmartCane companion app prototype — user dashboard, terrain detection, spatial haptic mapping, fall alerts, and guardian monitoring</h2>
+<style>
+.sc-nav{flex:1;padding:8px 0 10px;background:transparent;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;font-family:var(--font-sans);color:var(--color-text-secondary);font-size:11px;transition:color 0.2s}
+.sc-nav.on{color:#1D9E75}
+.sc-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:13px 14px;margin-bottom:9px}
+.sc-screen{display:none}
+.sc-screen.on{display:block}
+.tof-c{border-radius:2px;transition:background 0.5s,opacity 0.5s}
+.lra-bar{border-radius:2px;transition:height 0.4s}
+</style>
+<div style="display:flex;justify-content:center;padding:0.5rem 0 1rem">
+<div id="ph" style="width:340px;border:1.5px solid var(--color-border-secondary);border-radius:28px;overflow:hidden;background:var(--color-background-primary);position:relative;">
+
+<!-- FALL OVERLAY -->
+<div id="fall-ov" style="display:none;position:absolute;inset:0;background:var(--color-background-primary);z-index:60;overflow-y:auto;">
+  <div id="fov-header" style="padding:16px;background:#FCEBEB;border-bottom:2px solid #E24B4A;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <i class="ti ti-alert-triangle" style="font-size:26px;color:#A32D2D" aria-hidden="true"></i>
+      <div><div id="fov-title" style="font-size:17px;font-weight:500;color:#A32D2D">Fall Detected</div>
+      <div id="fov-sub" style="font-size:11px;color:#7A3535">IMU: rapid deceleration + ground impact</div></div>
+    </div>
+    <div style="display:flex;gap:14px;padding:9px 12px;background:rgba(255,255,255,0.5);border-radius:var(--border-radius-md)">
+      <div><div style="font-size:9px;color:#793636">ELAPSED</div><div id="fov-timer" style="font-size:20px;font-weight:500;color:#A32D2D;font-family:var(--font-mono)">0:00</div></div>
+      <div><div style="font-size:9px;color:#793636">TYPE</div><div id="fov-type" style="font-size:13px;font-weight:500;color:#A32D2D;margin-top:4px">User Fall</div></div>
+      <div><div style="font-size:9px;color:#793636">GUARDIAN</div><div id="fov-notif" style="font-size:13px;font-weight:500;color:#BA7517;margin-top:4px">Sending…</div></div>
+    </div>
+  </div>
+  <div style="margin:11px 14px;background:#000;border-radius:var(--border-radius-lg);overflow:hidden;border:0.5px solid var(--color-border-tertiary)">
+    <div style="aspect-ratio:16/9;display:flex;align-items:center;justify-content:center">
+      <div style="text-align:center;color:#666">
+        <i class="ti ti-video" style="font-size:30px;display:block;margin-bottom:6px" aria-hidden="true"></i>
+        <div style="font-size:11px;font-family:var(--font-mono)">ws://smartcane.local/stream</div>
+        <div style="font-size:10px;color:#444;margin-top:3px">Camera feed — auto-record on fall</div>
+      </div>
+    </div>
+  </div>
+  <div style="margin:0 14px 10px;padding:11px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;gap:8px">
+    <i class="ti ti-map-pin" style="font-size:16px;color:#378ADD" aria-hidden="true"></i>
+    <div><div style="font-size:12px;font-weight:500">Anna Salai, Chennai</div><div style="font-size:11px;color:var(--color-text-secondary);font-family:var(--font-mono)">13.0827°N 80.2707°E</div></div>
+  </div>
+  <div style="padding:0 14px 14px;display:flex;flex-direction:column;gap:8px">
+    <button onclick="dismissFall()" style="padding:13px;background:#EAF3DE;border:1px solid #97C459;border-radius:var(--border-radius-lg);color:#27500A;font-size:14px;font-weight:500;cursor:pointer;width:100%;font-family:var(--font-sans)">
+      <i class="ti ti-check" style="font-size:15px;vertical-align:-2px;margin-right:6px" aria-hidden="true"></i>I am OK — Dismiss Alert</button>
+    <div style="display:flex;gap:8px">
+      <button style="flex:1;padding:10px;background:#FCEBEB;border:0.5px solid #E24B4A;border-radius:var(--border-radius-md);color:#A32D2D;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--font-sans)"><i class="ti ti-phone" aria-hidden="true"></i> SOS</button>
+      <button style="flex:1;padding:10px;background:#E6F1FB;border:0.5px solid #378ADD;border-radius:var(--border-radius-md);color:#185FA5;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--font-sans)"><i class="ti ti-user" aria-hidden="true"></i> Guardian</button>
+    </div>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div style="padding:9px 16px 7px;display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-primary)">
+  <div style="display:flex;align-items:center;gap:6px">
+    <span id="conn-dot" style="width:8px;height:8px;border-radius:50%;background:#1D9E75;display:inline-block;transition:background 0.3s"></span>
+    <span id="conn-lbl" style="font-size:11px;color:var(--color-text-secondary);font-family:var(--font-mono)">CANE LIVE</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <i class="ti ti-wifi" style="font-size:14px;color:var(--color-text-secondary)" aria-hidden="true"></i>
+    <i id="bt-icon" class="ti ti-bluetooth" style="font-size:14px;color:var(--color-text-secondary)" aria-hidden="true"></i>
+    <span id="bat-pct" style="font-size:12px;font-weight:500;font-family:var(--font-mono);color:var(--color-text-primary)">74%</span>
+    <i class="ti ti-battery-2" style="font-size:16px;color:var(--color-text-secondary)" aria-hidden="true"></i>
+  </div>
+</div>
+
+<!-- MODE TOGGLE -->
+<div style="padding:6px 12px;display:flex;gap:5px;background:var(--color-background-secondary);border-bottom:0.5px solid var(--color-border-tertiary)">
+  <button id="btn-user" onclick="setMode('user')" style="flex:1;padding:5px;border-radius:var(--border-radius-md);font-size:11px;font-weight:500;background:#1D9E75;color:#fff;border:none;cursor:pointer;font-family:var(--font-sans)">User</button>
+  <button id="btn-grd" onclick="setMode('guardian')" style="flex:1;padding:5px;border-radius:var(--border-radius-md);font-size:11px;font-weight:500;background:transparent;color:var(--color-text-secondary);border:none;cursor:pointer;font-family:var(--font-sans)">Guardian</button>
+</div>
+
+<!-- MAIN CONTENT -->
+<div id="main-c" style="height:490px;overflow-y:auto;overflow-x:hidden;background:var(--color-background-secondary)">
+
+  <!-- USER WRAPPER -->
+  <div id="user-wrap">
+
+    <!-- HOME SCREEN -->
+    <div id="scr-home" class="sc-screen on" style="padding:11px">
+      <div style="margin-bottom:11px"><div style="font-size:20px;font-weight:500">SmartCane</div><div style="font-size:11px;color:var(--color-text-secondary);font-family:var(--font-mono)">Adaptive Mobility Assistant · Pi Zero 2W</div></div>
+
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:9px">
+        <div class="sc-card" style="padding:12px">
+          <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:5px"><i class="ti ti-battery-charging" style="font-size:13px;vertical-align:-1px" aria-hidden="true"></i> Battery</div>
+          <div id="bat-big" style="font-size:26px;font-weight:500;color:#1D9E75">74%</div>
+          <div id="bat-hrs" style="font-size:11px;color:var(--color-text-secondary);margin:2px 0 7px;font-family:var(--font-mono)">~17.8h left</div>
+          <div style="height:4px;background:var(--color-background-secondary);border-radius:2px;overflow:hidden"><div id="bat-bar" style="height:100%;width:74%;background:#1D9E75;border-radius:2px;transition:width 1s"></div></div>
+          <div style="font-size:9px;color:var(--color-text-secondary);margin-top:4px">3 × 18650 · MAX17043</div>
+        </div>
+        <div class="sc-card" style="padding:12px">
+          <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:5px"><i class="ti ti-activity" style="font-size:13px;vertical-align:-1px" aria-hidden="true"></i> Status</div>
+          <div id="sleep-status" style="font-size:14px;font-weight:500;color:#1D9E75;margin-bottom:3px">Active</div>
+          <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:9px">All sensors live</div>
+          <button id="sleep-btn" onclick="toggleSleep()" style="width:100%;padding:7px;border-radius:var(--border-radius-md);font-size:11px;font-weight:500;cursor:pointer;border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);font-family:var(--font-sans)">Sleep Mode</button>
+        </div>
+      </div>
+
+      <!-- TERRAIN CARD -->
+      <div id="terrain-card" class="sc-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="flex:1;padding-right:10px">
+            <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:7px"><i class="ti ti-radar" style="font-size:13px;vertical-align:-1px" aria-hidden="true"></i> Terrain · TOF 8×8 LiDAR</div>
+            <div id="t-name" style="font-size:16px;font-weight:500;color:#1D9E75;margin-bottom:2px">Clear Path</div>
+            <div id="t-desc" style="font-size:11px;color:var(--color-text-secondary);margin-bottom:9px">No obstacles detected</div>
+            <div id="t-pill" style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;background:#E1F5EE">
+              <i class="ti ti-volume" style="font-size:11px;color:#04342C" aria-hidden="true"></i>
+              <span id="t-audio" style="font-size:11px;color:#04342C">"Path is clear"</span>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:9px;color:var(--color-text-secondary);font-family:var(--font-mono);text-align:center;margin-bottom:3px">TOF 8×8</div>
+            <div id="tof-grid" style="display:grid;grid-template-columns:repeat(8,9px);gap:2px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LRA HAPTIC MAP -->
+      <div class="sc-card">
+        <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:9px"><i class="ti ti-wand" style="font-size:13px;vertical-align:-1px" aria-hidden="true"></i> Spatial Haptics — 3 LRA Zones (Dolby Atmos-style)</div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <div style="flex-shrink:0">
+            <svg id="palm-svg" width="100" height="132" viewBox="0 0 100 132" aria-hidden="true">
+              <ellipse cx="50" cy="90" rx="32" ry="39" fill="var(--color-background-secondary)" stroke="var(--color-border-secondary)" stroke-width="1.5"/>
+              <ellipse cx="19" cy="65" rx="10" ry="18" fill="var(--color-background-secondary)" stroke="var(--color-border-secondary)" stroke-width="1.5" transform="rotate(-18 19 65)"/>
+              <rect x="28" y="17" width="13" height="42" rx="6.5" fill="var(--color-background-secondary)" stroke="var(--color-border-secondary)" stroke-width="1.5"/>
+              <rect x="45" y="10" width="13" height="50" rx="6.5" fill="var(--color-background-secondary)" stroke="var(--color-border-secondary)" stroke-width="1.5"/>
+              <rect x="62" y="14" width="12" height="46" rx="6" fill="var(--color-background-secondary)" stroke="var(--color-border-secondary)" stroke-width="1.5"/>
+              <rect x="78" y="27" width="10" height="37" rx="5" fill="var(--color-background-secondary)" stroke="var(--color-border-secondary)" stroke-width="1.5"/>
+              <circle id="z-thumb" cx="20" cy="68" r="8.5" fill="#1D9E75" opacity="0.2"/>
+              <circle id="z-thumb-i" cx="20" cy="68" r="4" fill="#1D9E75" opacity="0.85"/>
+              <circle id="z-index" cx="34" cy="31" r="7.5" fill="#1D9E75" opacity="0.2"/>
+              <circle id="z-index-i" cx="34" cy="31" r="3.5" fill="#1D9E75" opacity="0.85"/>
+              <circle id="z-handle" cx="50" cy="123" r="7.5" fill="#1D9E75" opacity="0.2"/>
+              <circle id="z-handle-i" cx="50" cy="123" r="3.5" fill="#1D9E75" opacity="0.85"/>
+              <text x="20" y="85" text-anchor="middle" fill="var(--color-text-secondary)" font-size="8" font-family="monospace">T</text>
+              <text x="34" y="47" text-anchor="middle" fill="var(--color-text-secondary)" font-size="8" font-family="monospace">I</text>
+              <text x="50" y="115" text-anchor="middle" fill="transparent" font-size="1">H</text>
+            </svg>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+            <div id="lra-t-card" style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:7px 9px;border:0.5px solid var(--color-border-tertiary)">
+              <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;font-weight:500">Thumb LRA</span><span id="lra-t-pct" style="font-size:10px;font-family:var(--font-mono);color:var(--color-text-secondary)">5%</span></div>
+              <div id="lra-t-pat" style="font-size:10px;color:#888780;margin-bottom:5px">Idle</div>
+              <div id="lra-t-bars" style="display:flex;gap:2px;height:13px;align-items:flex-end"></div>
+            </div>
+            <div id="lra-i-card" style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:7px 9px;border:0.5px solid var(--color-border-tertiary)">
+              <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;font-weight:500">Index LRA</span><span id="lra-i-pct" style="font-size:10px;font-family:var(--font-mono);color:var(--color-text-secondary)">5%</span></div>
+              <div id="lra-i-pat" style="font-size:10px;color:#888780;margin-bottom:5px">Idle</div>
+              <div id="lra-i-bars" style="display:flex;gap:2px;height:13px;align-items:flex-end"></div>
+            </div>
+            <div id="lra-h-card" style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:7px 9px;border:0.5px solid var(--color-border-tertiary)">
+              <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:11px;font-weight:500">Handle LRA</span><span id="lra-h-pct" style="font-size:10px;font-family:var(--font-mono);color:var(--color-text-secondary)">5%</span></div>
+              <div id="lra-h-pat" style="font-size:10px;color:#888780;margin-bottom:5px">Idle</div>
+              <div id="lra-h-bars" style="display:flex;gap:2px;height:13px;align-items:flex-end"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CANE POSITION -->
+      <div class="sc-card" style="display:flex;align-items:center;gap:13px;margin-bottom:9px">
+        <svg width="52" height="52" viewBox="0 0 56 56" aria-hidden="true">
+          <circle cx="28" cy="28" r="24" fill="none" stroke="var(--color-border-secondary)" stroke-width="2"/>
+          <circle id="ang-arc" cx="28" cy="28" r="24" fill="none" stroke="#1D9E75" stroke-width="2.5" stroke-dasharray="130 151" stroke-linecap="round" style="transform:rotate(-90deg);transform-origin:28px 28px;transition:stroke-dasharray 0.5s,stroke 0.3s"/>
+          <line id="ang-needle" x1="28" y1="28" x2="28" y2="8" stroke="#1D9E75" stroke-width="2.5" stroke-linecap="round" style="transition:stroke 0.3s"/>
+          <circle cx="28" cy="28" r="3" fill="#1D9E75" id="ang-dot"/>
+        </svg>
+        <div>
+          <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:3px"><i class="ti ti-gyroscope" style="font-size:13px;vertical-align:-1px" aria-hidden="true"></i> IMU Cane Position</div>
+          <div id="ang-lbl" style="font-size:15px;font-weight:500;color:#1D9E75">Optimal Grip</div>
+          <div id="ang-val" style="font-size:11px;color:var(--color-text-secondary);font-family:var(--font-mono)">82° — ideal walking angle</div>
+        </div>
+      </div>
+
+      <!-- HEADSET -->
+      <div id="hs-card" class="sc-card" style="display:flex;align-items:center;gap:11px;margin-bottom:9px">
+        <div id="hs-icon-bg" style="width:36px;height:36px;border-radius:var(--border-radius-md);background:var(--color-background-secondary);display:flex;align-items:center;justify-content:center;border:0.5px solid var(--color-border-tertiary);flex-shrink:0">
+          <i class="ti ti-headphones" style="font-size:18px;color:var(--color-text-secondary)" aria-hidden="true"></i>
+        </div>
+        <div><div id="hs-lbl" style="font-size:12px;font-weight:500;color:var(--color-text-secondary)">No Headset Connected</div><div style="font-size:11px;color:var(--color-text-secondary)">Pair in Settings for audio alerts</div></div>
+      </div>
+
+      <button onclick="simFall()" style="width:100%;padding:11px;background:#FCEBEB;border:0.5px solid #F09595;border-radius:var(--border-radius-lg);color:#A32D2D;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--font-sans)">
+        <i class="ti ti-alert-triangle" style="font-size:14px;vertical-align:-2px;margin-right:6px" aria-hidden="true"></i>Simulate Fall Event
+      </button>
+    </div>
+
+    <!-- MAP SCREEN -->
+    <div id="scr-map" class="sc-screen" style="padding:11px">
+      <div style="font-size:20px;font-weight:500;margin-bottom:11px">Live Location</div>
+      <div style="border-radius:var(--border-radius-lg);overflow:hidden;border:0.5px solid var(--color-border-secondary);margin-bottom:10px">
+        <div style="height:210px;background:var(--color-background-secondary);position:relative;display:flex;align-items:center;justify-content:center">
+          <svg style="position:absolute;inset:0;width:100%;height:100%">
+            <defs><pattern id="gp" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M28 0L0 0 0 28" fill="none" stroke="var(--color-border-tertiary)" stroke-width="0.5"/></pattern></defs>
+            <rect width="100%" height="100%" fill="url(#gp)"/>
+            <rect x="0" y="97" width="340" height="13" fill="var(--color-background-primary)" stroke="var(--color-border-tertiary)" stroke-width="0.5"/>
+            <rect x="155" y="0" width="10" height="210" fill="var(--color-background-primary)" stroke="var(--color-border-tertiary)" stroke-width="0.5"/>
+            <rect x="60" y="0" width="7" height="210" fill="var(--color-background-primary)" stroke="var(--color-border-tertiary)" stroke-width="0.5"/>
+            <rect x="0" y="48" width="340" height="7" fill="var(--color-background-primary)" stroke="var(--color-border-tertiary)" stroke-width="0.5"/>
+            <text x="6" y="94" fill="var(--color-text-secondary)" font-size="8" font-family="monospace">Anna Salai</text>
+            <text x="168" y="44" fill="var(--color-text-secondary)" font-size="8" font-family="monospace" transform="rotate(90 168 44)">MG Rd</text>
+          </svg>
+          <div style="position:relative;z-index:5;width:18px;height:18px;border-radius:50%;background:#378ADD;border:3px solid white;outline:5px solid rgba(55,138,221,0.2)"></div>
+        </div>
+        <div style="padding:11px 14px;background:var(--color-background-primary);display:flex;justify-content:space-between;align-items:center">
+          <div><div style="font-size:13px;font-weight:500">Anna Salai, Chennai</div><div style="font-size:11px;color:var(--color-text-secondary)">GPS from user phone · 10s ago</div></div>
+          <div style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);text-align:right"><div>13.0827°N</div><div>80.2707°E</div></div>
+        </div>
+      </div>
+      <div class="sc-card" style="display:flex;align-items:center;gap:10px">
+        <i class="ti ti-shield-check" style="font-size:22px;color:#1D9E75" aria-hidden="true"></i>
+        <div><div style="font-size:13px;font-weight:500">Guardian Tracking Active</div><div style="font-size:11px;color:var(--color-text-secondary)">Location shared with Priya</div></div>
+        <span style="margin-left:auto;font-size:10px;color:#1D9E75;font-family:var(--font-mono)">LIVE</span>
+      </div>
+    </div>
+
+    <!-- ALERTS SCREEN -->
+    <div id="scr-alerts" class="sc-screen" style="padding:11px">
+      <div style="font-size:20px;font-weight:500;margin-bottom:11px">Activity Log</div>
+      <div id="alerts-list"></div>
+    </div>
+
+    <!-- SETTINGS SCREEN -->
+    <div id="scr-settings" class="sc-screen" style="padding:11px">
+      <div style="font-size:20px;font-weight:500;margin-bottom:11px">Settings</div>
+      <div class="sc-card">
+        <div style="font-size:11px;font-weight:500;color:var(--color-text-secondary);margin-bottom:11px;padding-bottom:9px;border-bottom:0.5px solid var(--color-border-tertiary)"><i class="ti ti-bluetooth" style="font-size:13px;vertical-align:-2px;margin-right:5px;color:#378ADD" aria-hidden="true"></i>Bluetooth Headset</div>
+        <div id="hs-set-label" style="font-size:13px;font-weight:500;color:var(--color-text-secondary);margin-bottom:3px">No headset paired</div>
+        <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:10px">Pair once — auto-connects every session</div>
+        <button id="scan-btn" onclick="startScan()" style="width:100%;padding:9px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);font-size:12px;font-weight:500;cursor:pointer;background:var(--color-background-secondary);color:var(--color-text-secondary);font-family:var(--font-sans)"><i class="ti ti-bluetooth-connected" style="font-size:14px;vertical-align:-2px;margin-right:6px" aria-hidden="true"></i>Scan for Headsets</button>
+        <div id="scan-res" style="margin-top:9px"></div>
+      </div>
+      <div class="sc-card">
+        <div style="font-size:11px;font-weight:500;color:var(--color-text-secondary);margin-bottom:11px;padding-bottom:9px;border-bottom:0.5px solid var(--color-border-tertiary)"><i class="ti ti-shield" style="font-size:13px;vertical-align:-2px;margin-right:5px;color:#BA7517" aria-hidden="true"></i>Fall Detection Sensitivity</div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-size:13px;font-weight:500">IMU Sensitivity</span><span id="sens-v" style="font-size:13px;font-weight:500;font-family:var(--font-mono)">75%</span></div>
+        <input type="range" min="20" max="100" value="75" step="1" oninput="document.getElementById('sens-v').textContent=this.value+'%'" style="width:100%;margin-bottom:7px">
+        <div style="font-size:11px;color:var(--color-text-secondary)">Uses accel + gyro fusion. Higher = detects smaller impacts. Differentiates user fall vs cane drop via holding angle.</div>
+      </div>
+      <div class="sc-card">
+        <div style="font-size:11px;font-weight:500;color:var(--color-text-secondary);margin-bottom:11px;padding-bottom:9px;border-bottom:0.5px solid var(--color-border-tertiary)"><i class="ti ti-moon" style="font-size:13px;vertical-align:-2px;margin-right:5px;color:#534AB7" aria-hidden="true"></i>Power & Sleep</div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-size:13px;font-weight:500">Sleep after idle</span><span id="sleep-v" style="font-size:13px;font-weight:500;font-family:var(--font-mono)">5 min</span></div>
+        <input type="range" min="1" max="15" value="5" step="1" oninput="document.getElementById('sleep-v').textContent=this.value+' min'" style="width:100%;margin-bottom:7px">
+        <div style="font-size:11px;color:var(--color-text-secondary)">Pi Zero 2W parks all cores when idle. Wake by moving cane or tapping button.</div>
+      </div>
+      <div class="sc-card">
+        <div style="font-size:11px;font-weight:500;color:var(--color-text-secondary);margin-bottom:11px;padding-bottom:9px;border-bottom:0.5px solid var(--color-border-tertiary)"><i class="ti ti-users" style="font-size:13px;vertical-align:-2px;margin-right:5px;color:#534AB7" aria-hidden="true"></i>Guardian Contacts</div>
+        <div style="padding:9px 0;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:13px;font-weight:500">Priya (Sister)</div><div style="font-size:11px;color:var(--color-text-secondary)">Fall + battery + location</div></div><i class="ti ti-phone" style="font-size:16px;color:#534AB7" aria-hidden="true"></i></div>
+        <div style="padding:9px 0;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:13px;font-weight:500">Dr. Raman</div><div style="font-size:11px;color:var(--color-text-secondary)">Fall alerts only</div></div><i class="ti ti-phone" style="font-size:16px;color:#534AB7" aria-hidden="true"></i></div>
+        <button style="width:100%;margin-top:9px;padding:8px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);font-size:12px;font-weight:500;cursor:pointer;background:transparent;color:var(--color-text-secondary);font-family:var(--font-sans)"><i class="ti ti-plus" style="font-size:14px;vertical-align:-2px;margin-right:5px" aria-hidden="true"></i>Add Guardian</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- GUARDIAN VIEW -->
+  <div id="guardian-wrap" style="display:none;padding:11px">
+    <div style="font-size:20px;font-weight:500;margin-bottom:3px">Guardian View</div>
+    <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px">Monitoring: <span style="color:#378ADD;font-weight:500">Ramesh Kumar</span></div>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:9px">
+      <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:13px;text-align:center"><div style="font-size:9px;color:var(--color-text-secondary);margin-bottom:5px">CANE STATUS</div><div style="font-size:15px;font-weight:500;color:#1D9E75">Online</div><div style="font-size:10px;color:var(--color-text-secondary);margin-top:2px">All sensors active</div></div>
+      <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:13px;text-align:center"><div style="font-size:9px;color:var(--color-text-secondary);margin-bottom:5px">BATTERY</div><div id="g-bat" style="font-size:26px;font-weight:500;color:#1D9E75">74%</div></div>
+    </div>
+    <div class="sc-card" style="display:flex;align-items:center;gap:11px;margin-bottom:9px">
+      <div style="width:36px;height:36px;border-radius:var(--border-radius-md);background:#E6F1FB;display:flex;align-items:center;justify-content:center;border:0.5px solid #B5D4F4;flex-shrink:0"><i class="ti ti-navigation" style="font-size:17px;color:#185FA5" aria-hidden="true"></i></div>
+      <div style="flex:1"><div style="font-size:13px;font-weight:500">Last Location</div><div style="font-size:11px;color:var(--color-text-secondary)">Anna Salai, Chennai · 1 min ago</div></div>
+      <span style="font-size:11px;color:#378ADD;font-weight:500">MAP</span>
+    </div>
+    <div style="font-size:11px;font-weight:500;color:var(--color-text-secondary);margin-bottom:8px;letter-spacing:0.3px">ALERT HISTORY</div>
+    <div style="background:var(--color-background-primary);border:0.5px solid #F7C1C1;border-radius:var(--border-radius-lg);padding:12px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:center">
+      <div style="width:36px;height:36px;border-radius:var(--border-radius-md);background:#FCEBEB;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-alert-triangle" style="font-size:16px;color:#A32D2D" aria-hidden="true"></i></div>
+      <div style="flex:1"><div style="font-size:13px;font-weight:500;color:#A32D2D">Fall Alert</div><div style="font-size:11px;color:var(--color-text-secondary)">User fell · camera snapshot sent</div></div>
+      <span style="font-size:10px;color:var(--color-text-secondary);font-family:var(--font-mono)">2d ago</span>
+    </div>
+    <div class="sc-card" style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+      <div style="width:36px;height:36px;border-radius:var(--border-radius-md);background:#FAEEDA;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-battery-1" style="font-size:16px;color:#633806" aria-hidden="true"></i></div>
+      <div style="flex:1"><div style="font-size:13px;font-weight:500">Low Battery</div><div style="font-size:11px;color:var(--color-text-secondary)">Cane at 18% — charged shortly after</div></div>
+      <span style="font-size:10px;color:var(--color-text-secondary);font-family:var(--font-mono)">3d ago</span>
+    </div>
+    <div class="sc-card" style="display:flex;gap:10px;align-items:center">
+      <div style="width:36px;height:36px;border-radius:var(--border-radius-md);background:#EEEDFE;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-stairs-up" style="font-size:16px;color:#3C3489" aria-hidden="true"></i></div>
+      <div style="flex:1"><div style="font-size:13px;font-weight:500">Stairs Alert</div><div style="font-size:11px;color:var(--color-text-secondary)">Detected at MG Road crossing</div></div>
+      <span style="font-size:10px;color:var(--color-text-secondary);font-family:var(--font-mono)">5d ago</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- BOTTOM NAV -->
+<div id="bottom-nav" style="border-top:0.5px solid var(--color-border-tertiary);display:flex;background:var(--color-background-primary)">
+  <button class="sc-nav on" id="nav-home" onclick="goScreen('home')" aria-label="Home"><i class="ti ti-home" style="font-size:20px" aria-hidden="true"></i><span>Home</span></button>
+  <button class="sc-nav" id="nav-map" onclick="goScreen('map')" aria-label="Map"><i class="ti ti-map-pin" style="font-size:20px" aria-hidden="true"></i><span>Map</span></button>
+  <button class="sc-nav" id="nav-alerts" onclick="goScreen('alerts')" aria-label="Alerts"><i class="ti ti-bell" style="font-size:20px" aria-hidden="true"></i><span>Alerts</span></button>
+  <button class="sc-nav" id="nav-settings" onclick="goScreen('settings')" aria-label="Settings"><i class="ti ti-settings" style="font-size:20px" aria-hidden="true"></i><span>Settings</span></button>
+</div>
+
+</div>
+</div>
+
+<script>
+const TR={
+  flat:{name:'Clear Path',desc:'No obstacles detected',audio:'"Path is clear"',c:'#1D9E75',bg:'#E1F5EE',tc:'#04342C',t:{p:'idle',i:5},ix:{p:'idle',i:5},h:{p:'idle',i:5},tof:'flat'},
+  stairs_up:{name:'Steps Up Ahead',desc:'Rising steps detected',audio:'"Steps going up — caution"',c:'#BA7517',bg:'#FAEEDA',tc:'#412402',t:{p:'strong',i:100},ix:{p:'pulse',i:70},h:{p:'gentle',i:30},tof:'up'},
+  stairs_dn:{name:'Steps Down',desc:'Descending steps',audio:'"Steps going down — slow down"',c:'#BA7517',bg:'#FAEEDA',tc:'#412402',t:{p:'pulse',i:70},ix:{p:'strong',i:100},h:{p:'gentle',i:30},tof:'dn'},
+  obs_left:{name:'Left Obstacle',desc:'Object on your left side',audio:'"Obstacle left — move right"',c:'#E24B4A',bg:'#FCEBEB',tc:'#501313',t:{p:'strong',i:100},ix:{p:'off',i:0},h:{p:'off',i:0},tof:'left'},
+  obs_right:{name:'Right Obstacle',desc:'Object on your right side',audio:'"Obstacle right — move left"',c:'#E24B4A',bg:'#FCEBEB',tc:'#501313',t:{p:'off',i:0},ix:{p:'strong',i:100},h:{p:'off',i:0},tof:'right'},
+  rough:{name:'Rough Terrain',desc:'Uneven surface ahead',audio:'"Uneven ground — go slowly"',c:'#534AB7',bg:'#EEEDFE',tc:'#26215C',t:{p:'wave',i:65},ix:{p:'wave',i:65},h:{p:'wave',i:65},tof:'rough'},
+  wet:{name:'Wet Surface',desc:'Slippery area detected',audio:'"Wet surface — walk carefully"',c:'#185FA5',bg:'#E6F1FB',tc:'#042C53',t:{p:'gentle',i:25},ix:{p:'gentle',i:25},h:{p:'pulse',i:50},tof:'flat'}
+};
+const PAT={
+  off:{lbl:'Off',w:[0,0,0,0,0],c:'#B4B2A9'},
+  idle:{lbl:'Idle',w:[0.12,0.15,0.12,0.15,0.12],c:'#888780'},
+  gentle:{lbl:'Gentle pulse',w:[0.4,0.5,0.4,0.5,0.4],c:'#1D9E75'},
+  pulse:{lbl:'Sharp pulse',w:[1,0.08,1,0.08,1],c:'#BA7517'},
+  wave:{lbl:'Ripple wave',w:[0.3,0.65,1,0.65,0.3],c:'#534AB7'},
+  strong:{lbl:'Continuous',w:[1,1,1,1,1],c:'#E24B4A'}
+};
+
+let bat=74,ang=82,sleeping=false,hsPaired=false,curTerrain='flat',fallTimerI=null,fallElapsed=0,curMode='user';
+let alerts=[
+  {icon:'ti-stairs-up',label:'Stairs detected',desc:'Rising steps — audio alert issued',time:'2 min ago',c:'#BA7517',bg:'#FAEEDA'},
+  {icon:'ti-arrows-diagonal',label:'Cane angle adjusted',desc:'Corrected from 45° to 82° — optimal grip',time:'8 min ago',c:'#534AB7',bg:'#EEEDFE'},
+  {icon:'ti-battery-charging',label:'Charged to 74%',desc:'Battery level check complete',time:'2 hrs ago',c:'#1D9E75',bg:'#E1F5EE'},
+  {icon:'ti-droplet',label:'Wet surface alert',desc:'Slippery area — caution issued',time:'4 hrs ago',c:'#185FA5',bg:'#E6F1FB'}
+];
+
+function goScreen(id){
+  ['home','map','alerts','settings'].forEach(s=>{
+    const el=document.getElementById('scr-'+s);
+    const nav=document.getElementById('nav-'+s);
+    if(el){el.classList.toggle('on',s===id);}
+    if(nav){nav.classList.toggle('on',s===id);}
+  });
+  if(id==='alerts') renderAlerts();
+}
+
+function setMode(m){
+  curMode=m;
+  document.getElementById('user-wrap').style.display=m==='user'?'block':'none';
+  document.getElementById('guardian-wrap').style.display=m==='guardian'?'block':'none';
+  document.getElementById('bottom-nav').style.display=m==='user'?'flex':'none';
+  ['user','guardian'].forEach(x=>{
+    const b=document.getElementById('btn-'+(x==='user'?'user':'grd'));
+    const active=x===m;
+    b.style.background=active?(x==='user'?'#1D9E75':'#378ADD'):'transparent';
+    b.style.color=active?'#fff':'var(--color-text-secondary)';
+  });
+}
+
+function setBat(p){
+  bat=p;
+  const c=p>50?'#1D9E75':p>20?'#BA7517':'#E24B4A';
+  const ps=Math.round(p)+'%';
+  ['bat-big','bat-pct'].forEach(id=>{const e=document.getElementById(id);if(e){e.textContent=ps;e.style.color=c;}});
+  const bh=document.getElementById('bat-hrs');if(bh)bh.textContent='~'+(p*0.24).toFixed(1)+'h left';
+  const bb=document.getElementById('bat-bar');if(bb){bb.style.width=p+'%';bb.style.background=c;}
+  const gb=document.getElementById('g-bat');if(gb){gb.textContent=ps;gb.style.color=c;}
+}
+
+function setAngle(d){
+  ang=d;
+  const circ=2*Math.PI*24;
+  const fill=(d/90)*circ;
+  const arc=document.getElementById('ang-arc');
+  const needle=document.getElementById('ang-needle');
+  const dot=document.getElementById('ang-dot');
+  const lbl=document.getElementById('ang-lbl');
+  const val=document.getElementById('ang-val');
+  if(arc)arc.setAttribute('stroke-dasharray',fill+' '+circ);
+  const rad=(d-90)*Math.PI/180;
+  const nx=28+20*Math.cos(rad),ny=28+20*Math.sin(rad);
+  if(needle){needle.setAttribute('x2',nx);needle.setAttribute('y2',ny);}
+  const s=d>70?{l:'Optimal Grip',v:Math.round(d)+'° — ideal walking angle',c:'#1D9E75'}
+    :d>50?{l:'Slightly Tilted',v:Math.round(d)+'° — adjust grip slightly',c:'#BA7517'}
+    :{l:'Cane Horizontal',v:Math.round(d)+'° — please stand cane up',c:'#E24B4A'};
+  if(arc)arc.style.stroke=s.c;
+  if(needle)needle.style.stroke=s.c;
+  if(dot)dot.style.fill=s.c;
+  if(lbl){lbl.textContent=s.l;lbl.style.color=s.c;}
+  if(val)val.textContent=s.v;
+}
+
+function mkBars(id,pat){
+  const el=document.getElementById(id);if(!el)return;
+  const p=PAT[pat]||PAT.idle;
+  el.innerHTML=p.w.map((h,i)=>`<div class="lra-bar" style="flex:1;background:${p.c};height:${Math.max(h*13,2)}px;opacity:0.85;transition:height 0.4s ${i*0.07}s ease"></div>`).join('');
+}
+
+function setLRA(lra){
+  const zones=[
+    {key:'t',ot:'z-thumb',it:'z-thumb-i',card:'lra-t-card',pat:'lra-t-pat',pct:'lra-t-pct',bars:'lra-t-bars'},
+    {key:'ix',ot:'z-index',it:'z-index-i',card:'lra-i-card',pat:'lra-i-pat',pct:'lra-i-pct',bars:'lra-i-bars'},
+    {key:'h',ot:'z-handle',it:'z-handle-i',card:'lra-h-card',pat:'lra-h-pat',pct:'lra-h-pct',bars:'lra-h-bars'}
+  ];
+  zones.forEach(z=>{
+    const d=lra[z.key];const p=PAT[d.p]||PAT.idle;
+    const ot=document.getElementById(z.ot);if(ot){ot.style.fill=p.c;ot.style.opacity=d.i>0?(0.1+d.i/100*0.35):0.08;}
+    const it=document.getElementById(z.it);if(it){it.style.fill=p.c;it.style.opacity=d.i>0?0.9:0.15;}
+    const card=document.getElementById(z.card);if(card)card.style.borderColor=d.i>0?p.c+'70':'var(--color-border-tertiary)';
+    const pat=document.getElementById(z.pat);if(pat){pat.textContent=p.lbl;pat.style.color=p.c;}
+    const pct=document.getElementById(z.pct);if(pct)pct.textContent=d.i+'%';
+    mkBars(z.bars,d.p);
+  });
+}
+
+function genTOF(type){
+  const g=[];
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    let v=0.3+Math.random()*0.08;
+    if(type==='up'&&r>4)v=0.82+Math.random()*0.18;
+    else if(type==='dn'&&r<3)v=0.12+Math.random()*0.1;
+    else if(type==='left'&&c<3)v=0.88+Math.random()*0.12;
+    else if(type==='right'&&c>4)v=0.88+Math.random()*0.12;
+    else if(type==='rough')v=Math.random();
+    g.push(Math.min(1,v));
+  }
+  return g;
+}
+
+function setTerrain(key){
+  curTerrain=key;
+  const t=TR[key];if(!t)return;
+  const nm=document.getElementById('t-name');if(nm){nm.textContent=t.name;nm.style.color=t.c;}
+  const ds=document.getElementById('t-desc');if(ds)ds.textContent=t.desc;
+  const au=document.getElementById('t-audio');if(au)au.textContent=t.audio;
+  const pl=document.getElementById('t-pill');if(pl){pl.style.background=t.bg;const span=pl.querySelector('span');if(span)span.style.color=t.tc;const ico=pl.querySelector('i');if(ico)ico.style.color=t.tc;}
+  const card=document.getElementById('terrain-card');if(card)card.style.borderColor=t.c+'50';
+  const grid=genTOF(t.tof);
+  const tg=document.getElementById('tof-grid');
+  if(tg)tg.innerHTML=grid.map(v=>{
+    const bg=v>0.65?t.c:v>0.35?t.c+'80':'var(--color-border-tertiary)';
+    return`<div class="tof-c" style="width:9px;height:9px;background:${bg};opacity:${(0.25+v*0.75).toFixed(2)}"></div>`;
+  }).join('');
+  setLRA({t:t.t,ix:t.ix,h:t.h});
+  if(key!=='flat')alerts.unshift({
+    icon:key.includes('stairs')?'ti-stairs-up':key.includes('obs')?'ti-alert-triangle':key==='rough'?'ti-wave-square':'ti-droplet',
+    label:t.name+' detected',desc:t.audio.replace(/"/g,''),time:'just now',c:t.c,bg:t.bg
+  });
+}
+
+function toggleSleep(){
+  sleeping=!sleeping;
+  const btn=document.getElementById('sleep-btn');
+  const st=document.getElementById('sleep-status');
+  const dot=document.getElementById('conn-dot');
+  const lbl=document.getElementById('conn-lbl');
+  if(sleeping){
+    if(btn)btn.textContent='Wake Up';
+    if(st){st.textContent='Sleeping';st.style.color='#888780';}
+    if(dot)dot.style.background='#888780';
+    if(lbl)lbl.textContent='CANE SLEEP';
+  } else {
+    if(btn)btn.textContent='Sleep Mode';
+    if(st){st.textContent='Active';st.style.color='#1D9E75';}
+    if(dot)dot.style.background='#1D9E75';
+    if(lbl)lbl.textContent='CANE LIVE';
+  }
+}
+
+function simFall(){
+  const isUser=Math.random()>0.38;
+  const ov=document.getElementById('fall-ov');if(ov)ov.style.display='block';
+  const ti=document.getElementById('fov-title');
+  const sb=document.getElementById('fov-sub');
+  const ty=document.getElementById('fov-type');
+  const nt=document.getElementById('fov-notif');
+  const hd=document.getElementById('fov-header');
+  if(ti){ti.textContent=isUser?'User Fall Detected':'Cane Dropped';ti.style.color=isUser?'#A32D2D':'#633806';}
+  if(sb)sb.textContent=isUser?'IMU: rapid decel + ground impact detected':'Cane fell — user motion still detected';
+  if(ty)ty.textContent=isUser?'User Fall':'Cane Fell';
+  if(nt){nt.textContent='Sending…';nt.style.color='#BA7517';}
+  if(hd)hd.style.background=isUser?'#FCEBEB':'#FAEEDA';
+  fallElapsed=0;
+  clearInterval(fallTimerI);
+  fallTimerI=setInterval(()=>{
+    fallElapsed++;
+    const m=Math.floor(fallElapsed/60),s=fallElapsed%60;
+    const el=document.getElementById('fov-timer');if(el)el.textContent=m+':'+String(s).padStart(2,'0');
+    if(fallElapsed===2&&nt){nt.textContent='Notified ✓';nt.style.color='#1D9E75';}
+  },1000);
+  alerts.unshift({icon:'ti-alert-triangle',label:isUser?'Fall Alert':'Cane Dropped',desc:isUser?'User fell — guardian notified · camera saved':'Cane fell — user safe',time:'just now',c:'#E24B4A',bg:'#FCEBEB'});
+}
+
+function dismissFall(){
+  const ov=document.getElementById('fall-ov');if(ov)ov.style.display='none';
+  clearInterval(fallTimerI);
+}
+
+function renderAlerts(){
+  const el=document.getElementById('alerts-list');if(!el)return;
+  el.innerHTML=alerts.slice(0,8).map(a=>`
+    <div style="background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:11px 13px;margin-bottom:7px;display:flex;gap:10px;align-items:center">
+      <div style="width:35px;height:35px;border-radius:var(--border-radius-md);background:${a.bg};display:flex;align-items:center;justify-content:center;border:0.5px solid ${a.c}40;flex-shrink:0">
+        <i class="ti ${a.icon}" style="font-size:16px;color:${a.c}" aria-hidden="true"></i>
+      </div>
+      <div style="flex:1"><div style="font-size:12px;font-weight:500;margin-bottom:2px">${a.label}</div><div style="font-size:11px;color:var(--color-text-secondary)">${a.desc}</div></div>
+      <span style="font-size:10px;color:var(--color-text-secondary);font-family:var(--font-mono);white-space:nowrap">${a.time}</span>
+    </div>`).join('');
+}
+
+let scanTo=null;
+function startScan(){
+  const btn=document.getElementById('scan-btn');
+  const res=document.getElementById('scan-res');
+  if(btn){btn.disabled=true;btn.innerHTML='<i class="ti ti-loader" style="font-size:14px;vertical-align:-2px;margin-right:6px" aria-hidden="true"></i>Scanning…';}
+  if(res)res.innerHTML='<div style="font-size:11px;color:var(--color-text-secondary);text-align:center;padding:10px">Searching for Bluetooth devices…</div>';
+  clearTimeout(scanTo);
+  scanTo=setTimeout(()=>{
+    if(res)res.innerHTML=['SoundCore A30','AirPods Pro','JBL Tune 760'].map(d=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 11px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);margin-bottom:5px">
+        <div style="display:flex;align-items:center;gap:7px"><i class="ti ti-headphones" style="font-size:15px;color:#378ADD" aria-hidden="true"></i><span style="font-size:13px;font-weight:500">${d}</span></div>
+        <button onclick="pairHS('${d}')" style="padding:4px 11px;border-radius:var(--border-radius-md);border:0.5px solid #378ADD;background:#E6F1FB;color:#185FA5;font-size:11px;font-weight:500;cursor:pointer;font-family:var(--font-sans)">Pair</button>
+      </div>`).join('');
+    if(btn){btn.disabled=false;btn.innerHTML='<i class="ti ti-bluetooth-connected" style="font-size:14px;vertical-align:-2px;margin-right:6px" aria-hidden="true"></i>Scan Again';}
+  },2400);
+}
+
+function pairHS(name){
+  hsPaired=true;
+  const res=document.getElementById('scan-res');
+  if(res)res.innerHTML=`<div style="padding:9px;background:#E1F5EE;border-radius:var(--border-radius-md);text-align:center;font-size:12px;font-weight:500;color:#04342C"><i class="ti ti-check" style="font-size:13px;vertical-align:-2px;margin-right:5px" aria-hidden="true"></i>${name} paired — will auto-connect always</div>`;
+  const sl=document.getElementById('hs-set-label');if(sl){sl.textContent=name+' — connected';sl.style.color='#1D9E75';}
+  const hl=document.getElementById('hs-lbl');if(hl){hl.textContent=name+' connected';hl.style.color='#1D9E75';}
+  const hib=document.getElementById('hs-icon-bg');if(hib){hib.style.background='#E1F5EE';hib.style.borderColor='#9FE1CB';const ico=hib.querySelector('i');if(ico)ico.style.color='#1D9E75';}
+  const bti=document.getElementById('bt-icon');if(bti)bti.style.color='#1D9E75';
+}
+
+// Init
+goScreen('home');
+setTerrain('flat');
+setBat(74);
+setAngle(82);
+
+// Live sim
+const tkeys=Object.keys(TR);let ti=0;
+setInterval(()=>{if(sleeping)
